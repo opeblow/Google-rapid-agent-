@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100 transition-colors duration-300;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl;
+  }
+  .glass-dark {
+    @apply bg-gray-900/40 backdrop-blur-md border border-gray-700/30 rounded-2xl;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-6 py-3 bg-gray-950 text-white font-semibold rounded-xl
+           hover:bg-gray-800 active:scale-[0.97] transition-all duration-200;
+  }
+  .btn-primary-dark {
+    @apply inline-flex items-center gap-2 px-6 py-3 bg-white text-gray-950 font-semibold rounded-xl
+           hover:bg-gray-200 active:scale-[0.97] transition-all duration-200;
+  }
+  .chat-bubble-user {
+    @apply bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-2xl rounded-br-md px-4 py-2.5 max-w-[85%] self-end;
+  }
+  .chat-bubble-ai {
+    @apply bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-md px-4 py-2.5 max-w-[85%] self-start border border-gray-200 dark:border-gray-700;
+  }
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
+  }
+  .timeline-dot {
+    @apply w-4 h-4 rounded-full border-4 border-white dark:border-gray-900 shadow;
+  }
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 4px;
+}
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #475569;
+}
