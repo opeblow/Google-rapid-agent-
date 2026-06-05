@@ -1,3 +1,18 @@
+FROM python:3.12-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY agent/requirements.txt agent/requirements.txt
+COPY backend/requirements.txt backend/requirements.txt
+RUN pip install --no-cache-dir -r agent/requirements.txt -r backend/requirements.txt
+
+COPY frontend/ frontend/
+WORKDIR /build/frontend
+RUN npm install && npm run build
+
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
@@ -5,17 +20,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
 
 WORKDIR /app
 
-COPY agent/requirements.txt agent/requirements.txt
-COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir -r agent/requirements.txt -r backend/requirements.txt
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /build/frontend/dist /app/frontend/dist
 
-COPY . .
-
-WORKDIR /app/frontend
-RUN npm install && npm run build
-WORKDIR /app
-
-RUN npx -y mongodb-mcp-server@latest || true
+COPY agent/ agent/
+COPY backend/ backend/
+COPY start_hf.py .
 
 EXPOSE 8000
 
