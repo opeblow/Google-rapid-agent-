@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 import httpx
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import AGENT_SERVICE_URL
 from db import (
@@ -193,6 +196,11 @@ async def health():
         database="connected" if db_ok else "disconnected",
     )
 
+
+frontend_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
+if os.path.isdir(frontend_dist):
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    logger.info("Frontend SPA mounted from %s", frontend_dist)
 
 if __name__ == "__main__":
     import uvicorn
