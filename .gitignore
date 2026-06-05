@@ -38,3 +38,6 @@ Desktop.ini
 # Project specific
 pictures/
 *.log
+*_stderr.txt
+*_stdout.txt
+test_*.py
