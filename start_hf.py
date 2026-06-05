@@ -58,15 +58,18 @@ def start_backend():
 
 def seed_database():
     logger.info("Seeding match data...")
-    result = subprocess.run(
-        [sys.executable, os.path.join(ROOT_DIR, "agent", "seed.py")],
-        capture_output=True, text=True, timeout=30,
-    )
-    for line in result.stdout.strip().splitlines():
-        if line.strip():
-            logger.info("seed | %s", line.strip())
-    if result.returncode != 0:
-        logger.warning("Seed exited with code %d — may need manual seeding", result.returncode)
+    try:
+        result = subprocess.run(
+            [sys.executable, os.path.join(ROOT_DIR, "agent", "seed.py")],
+            capture_output=True, text=True, timeout=60,
+        )
+        for line in result.stdout.strip().splitlines():
+            if line.strip():
+                logger.info("seed | %s", line.strip())
+        if result.returncode != 0:
+            logger.warning("Seed exited with code %d — may need manual seeding", result.returncode)
+    except subprocess.TimeoutExpired:
+        logger.warning("Seed timed out — will retry on next restart")
 
 
 if __name__ == "__main__":
