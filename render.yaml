@@ -20,10 +20,7 @@ services:
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: AGENT_SERVICE_URL
-        fromService:
-          name: wc2026-agent
-          type: web
-          property: url
+        value: https://wc2026-agent.onrender.com
       - key: MONGODB_URI
         sync: false
       - key: DATABASE_NAME
@@ -37,4 +34,4 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        value: https://wc2026-backend.onrender.com/api
+        value: https://wc2026-backend.onrender.com
