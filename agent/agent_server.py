@@ -7,11 +7,12 @@ from functools import partial
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from config import GEMINI_API_KEY
-from tools import TOOL_DEFINITIONS as CUSTOM_TOOL_DEFS
-from tools import TOOL_REGISTRY as CUSTOM_TOOL_REGISTRY
+from .config import GEMINI_API_KEY
+from .tools import TOOL_DEFINITIONS as CUSTOM_TOOL_DEFS
+from .tools import TOOL_REGISTRY as CUSTOM_TOOL_REGISTRY
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,7 +57,7 @@ async def lifespan(app: FastAPI):
         client = genai.Client(api_key=GEMINI_API_KEY)
         logger.info("Gemini client initialized")
 
-    from mcp_bridge import get_mcp_function_definitions, init_mcp
+    from .mcp_bridge import get_mcp_function_definitions, init_mcp
 
     mcp_ok = await init_mcp()
     if mcp_ok:
@@ -70,14 +71,55 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    from mcp_bridge import close_mcp
+    from .mcp_bridge import close_mcp
     await close_mcp()
-    from db import close as close_db
+    from .db import close as close_db
     close_db()
     logger.info("Agent server shut down")
 
 
 app = FastAPI(title="World Cup 2026 Fan Agent", version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _sanitize_schema(obj):
+    """Recursively keep Gemini-compatible JSON schema fields."""
+    # Blacklist of fields that Gemini explicitly rejects
+    FORBIDDEN_KEYS = {
+        'additionalproperties', 'additional_properties', 
+        'anyof', 'oneof', 'allof', 'not',
+        'const',
+        'minproperties', 'maxproperties',
+        'minlength', 'maxlength',
+        'minimum', 'maximum', 'exclusiveminimum', 'exclusivemaximum',
+        'multipleof', 'minitems', 'maxitems', 'uniqueitems',
+        'mincontains', 'maxcontains', 'contentencoding', 'contentmediatype',
+        'propertynames', 'if', 'then', 'else', 'dependentschemas',
+        'discriminator', 'xml', 'deprecated',
+        '$schema', '$id', '$defs', '$ref', '$vocabulary',
+        'definitions', '$comment'
+    }
+    
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            # Skip forbidden keys (case-insensitive)
+            if k.lower() in FORBIDDEN_KEYS:
+                continue
+            # Keep everything else
+            result[k] = _sanitize_schema(v)
+        return result
+    elif isinstance(obj, list):
+        return [_sanitize_schema(item) for item in obj]
+    else:
+        return obj
 
 
 def _build_gemini_tools():
@@ -87,11 +129,14 @@ def _build_gemini_tools():
 
     function_declarations = []
     for td in COMBINED_TOOL_DEFS:
+        # Deep sanitize parameters to keep only Gemini-compatible schema
+        params = _sanitize_schema(dict(td["parameters"]))
+        
         function_declarations.append(
             types.FunctionDeclaration(
                 name=td["name"],
                 description=td["description"],
-                parameters=td["parameters"],
+                parameters=params,
             )
         )
     return [types.Tool(function_declarations=function_declarations)]
@@ -105,7 +150,7 @@ async def _execute_tool_async(name: str, args: dict) -> dict:
 
     if name in MCP_TOOL_NAMES:
         logger.info("Executing MCP tool: %s", name)
-        from mcp_bridge import call_mcp_tool
+        from .mcp_bridge import call_mcp_tool
         return await call_mcp_tool(name, args)
 
     logger.error("Unknown tool called: %s", name)
@@ -142,7 +187,7 @@ async def _process_with_gemini(
                 None,
                 partial(
                     client.models.generate_content,
-                    model="gemini-2.0-flash",
+                    model="gemini-2.5-flash",
                     contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,

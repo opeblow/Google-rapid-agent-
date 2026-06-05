@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from bson import ObjectId
-from db import get_collection
+from .db import get_collection
 
 logger = logging.getLogger(__name__)
 
@@ -12,18 +12,18 @@ SEARCH_MATCHES_SCHEMA = {
     "properties": {
         "team": {
             "type": "string",
-            "description": "Filter by team name (e.g. 'Brazil', 'USA')",
+            "description": "Team name (e.g. 'Brazil', 'USA')",
         },
-        "city": {
+        "host_city": {
             "type": "string",
-            "description": "Filter by host city (e.g. 'New York/New Jersey', 'Mexico City')",
+            "description": "Host city (e.g. 'New York/New Jersey', 'Mexico City')",
         },
         "date": {
             "type": "string",
-            "description": "Filter by match date in YYYY-MM-DD format (e.g. '2026-06-12')",
+            "description": "Match date in YYYY-MM-DD format (e.g. '2026-06-12')",
         },
     },
-    "description": "Search for World Cup 2026 matches by team, city, or date. All parameters are optional.",
+    "description": "Search for World Cup 2026 matches by team, host city, or date. All parameters are optional.",
 }
 
 SAVE_PLAN_SCHEMA = {
@@ -101,7 +101,7 @@ TOOL_DEFINITIONS = [
 ]
 
 
-def search_matches(team: str | None = None, city: str | None = None, date: str | None = None) -> list[dict]:
+def search_matches(team: str | None = None, host_city: str | None = None, date: str | None = None) -> list[dict]:
     try:
         matches_col = get_collection("matches")
         filters = {}
@@ -110,8 +110,8 @@ def search_matches(team: str | None = None, city: str | None = None, date: str |
                 {"home_team": {"$regex": team, "$options": "i"}},
                 {"away_team": {"$regex": team, "$options": "i"}},
             ]
-        if city:
-            filters["city"] = {"$regex": city, "$options": "i"}
+        if host_city:
+            filters["city"] = {"$regex": host_city, "$options": "i"}
         if date:
             filters["date"] = date
 
@@ -121,7 +121,7 @@ def search_matches(team: str | None = None, city: str | None = None, date: str |
             doc["_id"] = str(doc["_id"])
             results.append(doc)
 
-        logger.info("search_matches(%s, %s, %s) → %d results", team, city, date, len(results))
+        logger.info("search_matches(%s, %s, %s) → %d results", team, host_city, date, len(results))
         return results if results else [{"message": "No matches found matching your criteria."}]
     except Exception as e:
         logger.error("search_matches failed: %s", e, exc_info=True)

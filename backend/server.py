@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from config import AGENT_SERVICE_URL
-from db import (
+from .config import AGENT_SERVICE_URL
+from .db import (
     add_message,
     close,
     create_session,
@@ -17,7 +19,7 @@ from db import (
     get_session,
     update_plan as db_update_plan,
 )
-from models import (
+from .models import (
     ChatRequest,
     ChatResponse,
     HealthResponse,
@@ -46,6 +48,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="World Cup 2026 Backend Gateway", version="1.0.0", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def _history_for_agent(messages: list[dict]) -> list[dict]:
     result = []
@@ -62,10 +72,16 @@ async def chat(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    session_id = request.session_id or create_session()
-    if request.session_id and not get_session(session_id):
-        session_id = create_session()
-    history = _history_for_agent(get_history(session_id))
+    loop = asyncio.get_running_loop()
+    
+    # Wrap synchronous database calls in executor to avoid blocking
+    session_id = request.session_id or await loop.run_in_executor(None, create_session)
+    if request.session_id:
+        exists = await loop.run_in_executor(None, lambda: get_session(request.session_id))
+        if not exists:
+            session_id = await loop.run_in_executor(None, create_session)
+    
+    history = await loop.run_in_executor(None, lambda: _history_for_agent(get_history(session_id)))
 
     logger.info("Chat | session=%s | message_len=%d | history=%d turns",
                 session_id, len(request.message), len(history))
@@ -92,8 +108,9 @@ async def chat(request: ChatRequest):
     plan_data = agent_data.get("plan_data")
     tool_calls = agent_data.get("tool_calls")
 
-    add_message(session_id, "user", request.message)
-    add_message(session_id, "assistant", reply, plan_data=plan_data)
+    # Save messages in background to avoid blocking the response
+    await loop.run_in_executor(None, lambda: add_message(session_id, "user", request.message))
+    await loop.run_in_executor(None, lambda: add_message(session_id, "assistant", reply, plan_data=plan_data))
 
     logger.info("Response | session=%s | reply_len=%d | plan=%s | tools=%d",
                 session_id, len(reply), "yes" if plan_data else "no", len(tool_calls) if tool_calls else 0)
@@ -162,11 +179,12 @@ async def health():
 
     db_ok = False
     try:
-        from db import get_db as db_conn
-        db_conn().command("ping")
+        from .db import get_db as db_conn
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: db_conn().command("ping"))
         db_ok = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Database health check failed: %s", e)
 
     status = "ok" if agent_ok and db_ok else "degraded" if agent_ok or db_ok else "down"
     return HealthResponse(
