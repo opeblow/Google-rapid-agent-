@@ -10,9 +10,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .config import GEMINI_API_KEY
-from .tools import TOOL_DEFINITIONS as CUSTOM_TOOL_DEFS
-from .tools import TOOL_REGISTRY as CUSTOM_TOOL_REGISTRY
+from config import GEMINI_API_KEY
+from tools import TOOL_DEFINITIONS as CUSTOM_TOOL_DEFS
+from tools import TOOL_REGISTRY as CUSTOM_TOOL_REGISTRY
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,12 +52,14 @@ class AgentResponse(BaseModel):
 async def lifespan(app: FastAPI):
     global client, COMBINED_TOOL_DEFS, MCP_TOOL_NAMES
 
-    if GEMINI_API_KEY:
+    if not GEMINI_API_KEY:
+        logger.error("GEMINI_API_KEY is not set. Agent will not function until it is configured.")
+    else:
         from google import genai
         client = genai.Client(api_key=GEMINI_API_KEY)
         logger.info("Gemini client initialized")
 
-    from .mcp_bridge import get_mcp_function_definitions, init_mcp
+    from mcp_bridge import get_mcp_function_definitions, init_mcp
 
     mcp_ok = await init_mcp()
     if mcp_ok:
@@ -71,9 +73,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    from .mcp_bridge import close_mcp
+    from mcp_bridge import close_mcp
     await close_mcp()
-    from .db import close as close_db
+    from db import close as close_db
     close_db()
     logger.info("Agent server shut down")
 
@@ -89,37 +91,41 @@ app.add_middleware(
 )
 
 
+def _resolve_refs(obj: Any, defs: dict[str, Any] | None = None) -> Any:
+    if isinstance(obj, dict):
+        resolved_defs = obj.get("$defs") if defs is None else defs
+        if "$ref" in obj and resolved_defs:
+            ref = obj["$ref"]
+            if ref.startswith("#/$defs/"):
+                key = ref[len("#/$defs/"):]
+                if key in resolved_defs:
+                    return _resolve_refs(resolved_defs[key], resolved_defs)
+        return {k: _resolve_refs(v, resolved_defs) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_resolve_refs(item, defs) for item in obj]
+    return obj
+
+
 def _sanitize_schema(obj):
-    """Recursively keep Gemini-compatible JSON schema fields."""
-    # Blacklist of fields that Gemini explicitly rejects
+    obj = _resolve_refs(obj)
     FORBIDDEN_KEYS = {
-        'additionalproperties', 'additional_properties', 
+        'additionalproperties', 'additional_properties',
         'anyof', 'oneof', 'allof', 'not',
-        'const',
-        'minproperties', 'maxproperties',
-        'minlength', 'maxlength',
-        'minimum', 'maximum', 'exclusiveminimum', 'exclusivemaximum',
-        'multipleof', 'minitems', 'maxitems', 'uniqueitems',
-        'mincontains', 'maxcontains', 'contentencoding', 'contentmediatype',
-        'propertynames', 'if', 'then', 'else', 'dependentschemas',
+        'if', 'then', 'else', 'dependentschemas',
         'discriminator', 'xml', 'deprecated',
-        '$schema', '$id', '$defs', '$ref', '$vocabulary',
-        'definitions', '$comment'
+        '$schema', '$id', '$ref', '$defs', '$vocabulary',
+        'definitions', '$comment',
     }
-    
     if isinstance(obj, dict):
         result = {}
         for k, v in obj.items():
-            # Skip forbidden keys (case-insensitive)
             if k.lower() in FORBIDDEN_KEYS:
                 continue
-            # Keep everything else
             result[k] = _sanitize_schema(v)
         return result
-    elif isinstance(obj, list):
+    if isinstance(obj, list):
         return [_sanitize_schema(item) for item in obj]
-    else:
-        return obj
+    return obj
 
 
 def _build_gemini_tools():
@@ -150,7 +156,7 @@ async def _execute_tool_async(name: str, args: dict) -> dict:
 
     if name in MCP_TOOL_NAMES:
         logger.info("Executing MCP tool: %s", name)
-        from .mcp_bridge import call_mcp_tool
+        from mcp_bridge import call_mcp_tool
         return await call_mcp_tool(name, args)
 
     logger.error("Unknown tool called: %s", name)
@@ -187,7 +193,7 @@ async def _process_with_gemini(
                 None,
                 partial(
                     client.models.generate_content,
-                    model="gemini-2.5-flash",
+                    model="gemini-2.0-flash",
                     contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,

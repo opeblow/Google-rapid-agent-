@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any
 
-from .config import DATABASE_NAME, MONGODB_URI
+from config import DATABASE_NAME, MONGODB_URI
 
 logger = logging.getLogger(__name__)
 

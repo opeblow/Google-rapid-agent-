@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: wc2026-agent
+    runtime: docker
+    rootDir: agent
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: DATABASE_NAME
+        value: worldcup_2026
+
+  - type: web
+    name: wc2026-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: AGENT_SERVICE_URL
+        fromService:
+          name: wc2026-agent
+          type: web
+          property: url
+      - key: MONGODB_URI
+        sync: false
+      - key: DATABASE_NAME
+        value: worldcup_2026
+
+  - type: web
+    name: wc2026-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://wc2026-backend.onrender.com/api

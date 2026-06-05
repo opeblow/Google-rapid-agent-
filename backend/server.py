@@ -9,8 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .config import AGENT_SERVICE_URL
-from .db import (
+from config import AGENT_SERVICE_URL
+from db import (
     add_message,
     close,
     create_session,
@@ -19,7 +19,7 @@ from .db import (
     get_session,
     update_plan as db_update_plan,
 )
-from .models import (
+from models import (
     ChatRequest,
     ChatResponse,
     HealthResponse,
@@ -179,7 +179,7 @@ async def health():
 
     db_ok = False
     try:
-        from .db import get_db as db_conn
+        from db import get_db as db_conn
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: db_conn().command("ping"))
         db_ok = True

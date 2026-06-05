@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from bson import ObjectId
-from .db import get_collection
+from db import get_collection
 
 logger = logging.getLogger(__name__)
 
