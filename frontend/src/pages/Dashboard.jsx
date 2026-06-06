@@ -29,6 +29,10 @@ export default function Dashboard() {
     if (saved) {
       try { setPlanMeta(JSON.parse(saved)) } catch {}
     }
+    const savedPlanData = localStorage.getItem(`plan_data_${sessionId}`)
+    if (savedPlanData) {
+      try { setPlanData(JSON.parse(savedPlanData)) } catch {}
+    }
     setLoading(false)
   }, [sessionId])
 

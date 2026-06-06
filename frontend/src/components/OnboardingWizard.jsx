@@ -56,6 +56,9 @@ export default function OnboardingWizard() {
       localStorage.setItem(`plan_${sid}`, JSON.stringify({
         teams, budget, departure, dateStart, dateEnd, travelers, preferences,
       }))
+      if (data.plan_data) {
+        localStorage.setItem(`plan_data_${sid}`, JSON.stringify(data.plan_data))
+      }
       navigate(`/dashboard/${sid}`)
     } catch {
       alert('Something went wrong. Please make sure the backend and agent are running.')
