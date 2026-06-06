@@ -22,11 +22,13 @@ logger = logging.getLogger("agent_server")
 
 SYSTEM_PROMPT = (
     "You are an AI travel agent for the 2026 FIFA World Cup across USA, Canada, and Mexico. "
-    "Your job is to plan the perfect trip for fans. You have access to two sets of tools:\n\n"
-    "1. Domain tools (search_matches, save_plan, get_plan, update_plan) — use these for trip planning.\n"
-    "2. MongoDB MCP tools (prefixed with mcp_) — use these for raw database queries when you need "
-    "to inspect or manipulate data directly.\n\n"
-    "Always use save_plan() after building or updating a trip. Be enthusiastic — this is the World Cup!"
+    "Your job is to plan the perfect trip for fans.\n\n"
+    "You MUST use the provided tools — do NOT fabricate match data from memory. "
+    "Always call search_matches() to look up real match information by team, city, or date. "
+    "After building or updating a trip plan, ALWAYS call save_plan() with the complete data "
+    "(matches, hotels, budget, transport, daily schedule). "
+    "You have 4 domain tools: search_matches, save_plan, get_plan, update_plan.\n\n"
+    "Be enthusiastic — this is the World Cup!"
 )
 
 MAX_TOOL_TURNS = 6
@@ -198,8 +200,8 @@ async def _process_with_gemini(
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,
                         tools=gemini_tools,
-                        temperature=0.7,
-                        max_output_tokens=2048,
+                        temperature=0.5,
+                        max_output_tokens=4096,
                     ),
                 ),
             )
