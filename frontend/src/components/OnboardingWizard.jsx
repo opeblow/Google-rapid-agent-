@@ -12,7 +12,7 @@ const STEPS = ['Team', 'Trip Details', 'Preferences']
 
 const COUNTRIES = [
   'USA', 'Canada', 'Mexico', 'Brazil', 'Argentina', 'UK', 'Germany', 'France',
-  'Spain', 'Italy', 'Japan', 'South Korea', 'Australia', 'Nigeria', 'South Africa', 'Other',
+  'Spain', 'Italy', 'Japan', 'Korea Republic', 'Australia', 'Nigeria', 'South Africa', 'Other',
 ]
 
 const stepVariants = {
