@@ -3,17 +3,40 @@ import { PaperAirplaneIcon } from '@heroicons/react/24/outline'
 import MessageBubble from './MessageBubble'
 import TypingIndicator from './TypingIndicator'
 import SuggestedChips from './SuggestedChips'
-import { sendMessage } from '../api'
+import { sendMessage, getSessionHistory } from '../api'
 
 export default function ChatInterface({ sessionId, onPlanUpdate }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [hydrating, setHydrating] = useState(true)
   const bottomRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
+
+  // Rehydrate the dashboard from its session: the plan was already generated
+  // (during onboarding or a prior visit) and lives in the session history.
+  useEffect(() => {
+    if (!sessionId) { setHydrating(false); return }
+    let cancelled = false
+    setHydrating(true)
+    getSessionHistory(sessionId)
+      .then(history => {
+        if (cancelled || !Array.isArray(history)) return
+        setMessages(
+          history
+            .filter(m => m.content)
+            .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
+        )
+        const lastPlan = [...history].reverse().find(m => m.plan_data)?.plan_data
+        if (lastPlan && onPlanUpdate) onPlanUpdate(lastPlan)
+      })
+      .catch(() => { /* new/empty session returns 404 — keep the empty state */ })
+      .finally(() => { if (!cancelled) setHydrating(false) })
+    return () => { cancelled = true }
+  }, [sessionId, onPlanUpdate])
 
   const handleSend = async (text) => {
     const msg = (text || input).trim()
@@ -42,7 +65,10 @@ export default function ChatInterface({ sessionId, onPlanUpdate }) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
-        {messages.length === 0 && (
+        {hydrating && messages.length === 0 && (
+          <div className="text-center py-12 text-gray-400 text-sm">Loading your conversation…</div>
+        )}
+        {!hydrating && messages.length === 0 && (
           <div className="text-center py-12 text-gray-400">
             <p className="font-medium text-gray-600 dark:text-gray-300">Ask me anything about your trip!</p>
             <p className="text-sm mt-1">Try searching for matches, building a plan, or getting recommendations.</p>

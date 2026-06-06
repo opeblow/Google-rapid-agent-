@@ -5,14 +5,11 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-import httpx
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import AGENT_SERVICE_URL
+from agent import agent_status, close_agent, init_agent, process_message
 from db import (
     add_message,
     close,
@@ -25,7 +22,6 @@ from db import (
 from models import (
     ChatRequest,
     ChatResponse,
-    HealthResponse,
     HistoryEntry,
     PlanResponse,
     PlanUpdateRequest,
@@ -38,18 +34,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("backend_server")
 
-AGENT_TIMEOUT = 60.0
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Backend gateway starting — agent at %s", AGENT_SERVICE_URL)
+    logger.info("World Cup 2026 app starting — initialising in-process agent")
+    await init_agent()
     yield
+    await close_agent()
     close()
-    logger.info("Backend gateway shut down")
+    logger.info("App shut down")
 
 
-app = FastAPI(title="World Cup 2026 Backend Gateway", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="World Cup 2026 Agent", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -90,26 +86,10 @@ async def chat(request: ChatRequest):
                 session_id, len(request.message), len(history))
 
     try:
-        async with httpx.AsyncClient(timeout=AGENT_TIMEOUT) as client:
-            resp = await client.post(
-                f"{AGENT_SERVICE_URL}/agent/process",
-                json={"message": request.message, "history": history},
-            )
-            resp.raise_for_status()
-            agent_data = resp.json()
-    except httpx.ConnectError:
-        logger.error("Agent service unreachable at %s", AGENT_SERVICE_URL)
-        raise HTTPException(status_code=503, detail="Agent service is unavailable")
-    except httpx.TimeoutException:
-        logger.error("Agent service timed out after %ds", AGENT_TIMEOUT)
-        raise HTTPException(status_code=504, detail="Agent service timed out")
-    except httpx.HTTPStatusError as e:
-        logger.error("Agent returned %s: %s", e.response.status_code, e.response.text)
-        raise HTTPException(status_code=502, detail="Agent service error")
-
-    reply = agent_data.get("reply", "")
-    plan_data = agent_data.get("plan_data")
-    tool_calls = agent_data.get("tool_calls")
+        reply, plan_data, tool_calls = await process_message(request.message, history)
+    except Exception as e:
+        logger.error("Agent processing failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail="Agent processing error")
 
     # Save messages in background to avoid blocking the response
     await loop.run_in_executor(None, lambda: add_message(session_id, "user", request.message))
@@ -170,15 +150,10 @@ async def get_history_endpoint(session_id: str):
     return [HistoryEntry(**m) for m in messages]
 
 
-@app.get("/api/health", response_model=HealthResponse)
+@app.get("/api/health")
 async def health():
-    agent_ok = False
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{AGENT_SERVICE_URL}/agent/health")
-            agent_ok = resp.status_code == 200
-    except Exception:
-        pass
+    status_info = agent_status()
+    agent_ok = status_info["llm"] == "connected"
 
     db_ok = False
     try:
@@ -190,11 +165,12 @@ async def health():
         logger.warning("Database health check failed: %s", e)
 
     status = "ok" if agent_ok and db_ok else "degraded" if agent_ok or db_ok else "down"
-    return HealthResponse(
-        status=status,
-        agent="reachable" if agent_ok else "unreachable",
-        database="connected" if db_ok else "disconnected",
-    )
+    return {
+        "status": status,
+        "agent": "ready" if agent_ok else "degraded",
+        "database": "connected" if db_ok else "disconnected",
+        **status_info,
+    }
 
 
 frontend_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
