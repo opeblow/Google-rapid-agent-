@@ -1,7 +1,9 @@
 import axios from 'axios'
 
+const PRODUCTION_API = 'https://wc2026-backend-gh61.onrender.com'
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: import.meta.env.VITE_API_URL || PRODUCTION_API,
   headers: { 'Content-Type': 'application/json' },
 })
 

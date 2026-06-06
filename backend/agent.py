@@ -190,7 +190,7 @@ async def process_message(
                 model=OPENROUTER_MODEL,
                 messages=messages,
                 tools=tools,
-                temperature=0.7,
+                temperature=0.5,
                 max_tokens=2048,
             )
         except Exception as e:
