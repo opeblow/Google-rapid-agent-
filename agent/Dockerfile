@@ -9,8 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN npx -y mongodb-mcp-server@latest || true
-
 EXPOSE 8001
 
 CMD python seed.py ; uvicorn agent_server:app --host 0.0.0.0 --port ${PORT:-8001}
