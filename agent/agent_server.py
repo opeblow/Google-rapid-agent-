@@ -195,7 +195,7 @@ async def _process_with_gemini(
                 None,
                 partial(
                     client.models.generate_content,
-                    model="gemini-2.5-flash",
+                    model="gemini-flash-latest",
                     contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,
