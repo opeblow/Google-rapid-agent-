@@ -1,93 +1,146 @@
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from db import get_collection
 
 logger = logging.getLogger(__name__)
 
-HOST_CITIES = [
-    ("Atlanta", "Mercedes-Benz Stadium", "USA"),
-    ("Boston", "Gillette Stadium", "USA"),
-    ("Dallas", "AT&T Stadium", "USA"),
-    ("Houston", "NRG Stadium", "USA"),
-    ("Kansas City", "Arrowhead Stadium", "USA"),
-    ("Los Angeles", "SoFi Stadium", "USA"),
-    ("Miami", "Hard Rock Stadium", "USA"),
-    ("New York/New Jersey", "MetLife Stadium", "USA"),
-    ("Philadelphia", "Lincoln Financial Field", "USA"),
-    ("San Francisco Bay Area", "Levi's Stadium", "USA"),
-    ("Seattle", "Lumen Field", "USA"),
-    ("Toronto", "BMO Field", "Canada"),
-    ("Vancouver", "BC Place", "Canada"),
-    ("Guadalajara", "Estadio Akron", "Mexico"),
-    ("Mexico City", "Estadio Azteca", "Mexico"),
-    ("Monterrey", "Estadio BBVA", "Mexico"),
+ET = ZoneInfo("America/New_York")
+
+# The 16 host cities -> (stadium, country, IANA timezone). One stadium per city.
+CITY_INFO = {
+    "Atlanta": ("Mercedes-Benz Stadium", "USA", "America/New_York"),
+    "Boston": ("Gillette Stadium", "USA", "America/New_York"),
+    "Dallas": ("AT&T Stadium", "USA", "America/Chicago"),
+    "Houston": ("NRG Stadium", "USA", "America/Chicago"),
+    "Kansas City": ("Arrowhead Stadium", "USA", "America/Chicago"),
+    "Los Angeles": ("SoFi Stadium", "USA", "America/Los_Angeles"),
+    "Miami": ("Hard Rock Stadium", "USA", "America/New_York"),
+    "New York/New Jersey": ("MetLife Stadium", "USA", "America/New_York"),
+    "Philadelphia": ("Lincoln Financial Field", "USA", "America/New_York"),
+    "San Francisco Bay Area": ("Levi's Stadium", "USA", "America/Los_Angeles"),
+    "Seattle": ("Lumen Field", "USA", "America/Los_Angeles"),
+    "Toronto": ("BMO Field", "Canada", "America/Toronto"),
+    "Vancouver": ("BC Place", "Canada", "America/Vancouver"),
+    "Guadalajara": ("Estadio Akron", "Mexico", "America/Mexico_City"),
+    "Mexico City": ("Estadio Azteca", "Mexico", "America/Mexico_City"),
+    "Monterrey": ("Estadio BBVA", "Mexico", "America/Monterrey"),
+}
+
+# Real 2026 FIFA World Cup group-stage fixtures from the final draw (5 Dec 2025).
+# Source kickoff times are US Eastern (ET); they are converted to each venue's
+# local time at build time below. Tuple: (et_date, et_hour, group, home, away, city)
+RAW_FIXTURES = [
+    ("2026-06-11", 15, "A", "Mexico", "South Africa", "Mexico City"),
+    ("2026-06-11", 21, "A", "South Korea", "Czechia", "Guadalajara"),
+    ("2026-06-12", 15, "B", "Canada", "Bosnia and Herzegovina", "Toronto"),
+    ("2026-06-12", 21, "D", "USA", "Paraguay", "Los Angeles"),
+    ("2026-06-13", 0, "D", "Australia", "Turkey", "Vancouver"),
+    ("2026-06-13", 15, "B", "Qatar", "Switzerland", "San Francisco Bay Area"),
+    ("2026-06-13", 18, "C", "Brazil", "Morocco", "New York/New Jersey"),
+    ("2026-06-13", 21, "C", "Haiti", "Scotland", "Boston"),
+    ("2026-06-14", 13, "E", "Germany", "Curaçao", "Houston"),
+    ("2026-06-14", 16, "F", "Netherlands", "Japan", "Dallas"),
+    ("2026-06-14", 19, "E", "Ivory Coast", "Ecuador", "Philadelphia"),
+    ("2026-06-14", 21, "F", "Sweden", "Tunisia", "Monterrey"),
+    ("2026-06-15", 12, "H", "Spain", "Cape Verde", "Atlanta"),
+    ("2026-06-15", 15, "G", "Belgium", "Egypt", "Seattle"),
+    ("2026-06-15", 18, "H", "Saudi Arabia", "Uruguay", "Miami"),
+    ("2026-06-15", 21, "G", "Iran", "New Zealand", "Los Angeles"),
+    ("2026-06-16", 15, "I", "France", "Senegal", "New York/New Jersey"),
+    ("2026-06-16", 18, "I", "Iraq", "Norway", "Boston"),
+    ("2026-06-16", 21, "J", "Argentina", "Algeria", "Kansas City"),
+    ("2026-06-17", 0, "J", "Austria", "Jordan", "San Francisco Bay Area"),
+    ("2026-06-17", 13, "K", "Portugal", "DR Congo", "Houston"),
+    ("2026-06-17", 16, "L", "England", "Croatia", "Dallas"),
+    ("2026-06-17", 19, "L", "Ghana", "Panama", "Toronto"),
+    ("2026-06-17", 22, "K", "Uzbekistan", "Colombia", "Mexico City"),
+    ("2026-06-18", 12, "A", "Czechia", "South Africa", "Atlanta"),
+    ("2026-06-18", 15, "B", "Switzerland", "Bosnia and Herzegovina", "Los Angeles"),
+    ("2026-06-18", 21, "A", "Mexico", "South Korea", "Guadalajara"),
+    ("2026-06-18", 21, "B", "Canada", "Qatar", "Vancouver"),
+    ("2026-06-19", 15, "D", "USA", "Australia", "Seattle"),
+    ("2026-06-19", 18, "C", "Scotland", "Morocco", "Boston"),
+    ("2026-06-19", 21, "C", "Brazil", "Haiti", "Philadelphia"),
+    ("2026-06-19", 21, "D", "Turkey", "Paraguay", "San Francisco Bay Area"),
+    ("2026-06-20", 13, "F", "Netherlands", "Sweden", "Houston"),
+    ("2026-06-20", 16, "E", "Germany", "Ivory Coast", "Toronto"),
+    ("2026-06-20", 20, "E", "Ecuador", "Curaçao", "Kansas City"),
+    ("2026-06-21", 0, "F", "Tunisia", "Japan", "Monterrey"),
+    ("2026-06-21", 12, "H", "Spain", "Saudi Arabia", "Atlanta"),
+    ("2026-06-21", 15, "G", "Belgium", "Iran", "Los Angeles"),
+    ("2026-06-21", 18, "H", "Uruguay", "Cape Verde", "Miami"),
+    ("2026-06-21", 21, "G", "New Zealand", "Egypt", "Vancouver"),
+    ("2026-06-22", 13, "J", "Argentina", "Austria", "Dallas"),
+    ("2026-06-22", 17, "I", "France", "Iraq", "Philadelphia"),
+    ("2026-06-22", 20, "I", "Norway", "Senegal", "New York/New Jersey"),
+    ("2026-06-22", 23, "J", "Jordan", "Algeria", "San Francisco Bay Area"),
+    ("2026-06-23", 13, "K", "Portugal", "Uzbekistan", "Houston"),
+    ("2026-06-23", 22, "K", "Colombia", "DR Congo", "Guadalajara"),
+    ("2026-06-23", 16, "L", "England", "Ghana", "Boston"),
+    ("2026-06-23", 19, "L", "Panama", "Croatia", "Toronto"),
+    ("2026-06-24", 18, "C", "Scotland", "Brazil", "Miami"),
+    ("2026-06-24", 18, "C", "Morocco", "Haiti", "Atlanta"),
+    ("2026-06-24", 21, "A", "Czechia", "Mexico", "Mexico City"),
+    ("2026-06-24", 21, "A", "South Africa", "South Korea", "Monterrey"),
+    ("2026-06-24", 21, "B", "Switzerland", "Canada", "Vancouver"),
+    ("2026-06-24", 15, "B", "Bosnia and Herzegovina", "Qatar", "Seattle"),
+    ("2026-06-25", 16, "E", "Ecuador", "Germany", "New York/New Jersey"),
+    ("2026-06-25", 16, "E", "Curaçao", "Ivory Coast", "Philadelphia"),
+    ("2026-06-25", 19, "F", "Japan", "Sweden", "Dallas"),
+    ("2026-06-25", 19, "F", "Tunisia", "Netherlands", "Kansas City"),
+    ("2026-06-25", 22, "D", "Turkey", "USA", "Los Angeles"),
+    ("2026-06-25", 22, "D", "Paraguay", "Australia", "San Francisco Bay Area"),
+    ("2026-06-26", 20, "H", "Cape Verde", "Saudi Arabia", "Houston"),
+    ("2026-06-26", 20, "H", "Uruguay", "Spain", "Guadalajara"),
+    ("2026-06-26", 23, "G", "Egypt", "Iran", "Seattle"),
+    ("2026-06-26", 23, "G", "New Zealand", "Belgium", "Vancouver"),
+    ("2026-06-26", 15, "I", "Norway", "France", "Boston"),
+    ("2026-06-26", 15, "I", "Senegal", "Iraq", "Toronto"),
+    ("2026-06-27", 17, "L", "Panama", "England", "New York/New Jersey"),
+    ("2026-06-27", 17, "L", "Croatia", "Ghana", "Philadelphia"),
+    ("2026-06-27", 19, "K", "Colombia", "Portugal", "Miami"),
+    ("2026-06-27", 19, "K", "DR Congo", "Uzbekistan", "Atlanta"),
+    ("2026-06-27", 22, "J", "Algeria", "Austria", "Kansas City"),
+    ("2026-06-27", 22, "J", "Jordan", "Argentina", "Dallas"),
 ]
 
-MATCHES = [
-    {"match_id": "WC-001", "home_team": "Brazil", "away_team": "Croatia", "date": "2026-06-11", "time": "16:00", "venue": "Mercedes-Benz Stadium", "city": "Atlanta", "country": "USA", "stage": "Group Stage", "group": "A"},
-    {"match_id": "WC-002", "home_team": "Argentina", "away_team": "Japan", "date": "2026-06-12", "time": "14:00", "venue": "Gillette Stadium", "city": "Boston", "country": "USA", "stage": "Group Stage", "group": "B"},
-    {"match_id": "WC-003", "home_team": "France", "away_team": "Senegal", "date": "2026-06-12", "time": "18:00", "venue": "AT&T Stadium", "city": "Dallas", "country": "USA", "stage": "Group Stage", "group": "C"},
-    {"match_id": "WC-004", "home_team": "England", "away_team": "Iran", "date": "2026-06-13", "time": "15:00", "venue": "NRG Stadium", "city": "Houston", "country": "USA", "stage": "Group Stage", "group": "D"},
-    {"match_id": "WC-005", "home_team": "Germany", "away_team": "Australia", "date": "2026-06-13", "time": "20:00", "venue": "Arrowhead Stadium", "city": "Kansas City", "country": "USA", "stage": "Group Stage", "group": "E"},
-    {"match_id": "WC-006", "home_team": "Spain", "away_team": "Morocco", "date": "2026-06-14", "time": "13:00", "venue": "SoFi Stadium", "city": "Los Angeles", "country": "USA", "stage": "Group Stage", "group": "F"},
-    {"match_id": "WC-007", "home_team": "Netherlands", "away_team": "Ecuador", "date": "2026-06-14", "time": "17:00", "venue": "Hard Rock Stadium", "city": "Miami", "country": "USA", "stage": "Group Stage", "group": "G"},
-    {"match_id": "WC-008", "home_team": "Portugal", "away_team": "Ghana", "date": "2026-06-15", "time": "16:00", "venue": "MetLife Stadium", "city": "New York/New Jersey", "country": "USA", "stage": "Group Stage", "group": "H"},
-    {"match_id": "WC-009", "home_team": "Belgium", "away_team": "Canada", "date": "2026-06-15", "time": "19:00", "venue": "Lincoln Financial Field", "city": "Philadelphia", "country": "USA", "stage": "Group Stage", "group": "I"},
-    {"match_id": "WC-010", "home_team": "Italy", "away_team": "South Korea", "date": "2026-06-16", "time": "14:00", "venue": "Levi's Stadium", "city": "San Francisco Bay Area", "country": "USA", "stage": "Group Stage", "group": "J"},
-    {"match_id": "WC-011", "home_team": "Switzerland", "away_team": "Cameroon", "date": "2026-06-16", "time": "18:00", "venue": "Lumen Field", "city": "Seattle", "country": "USA", "stage": "Group Stage", "group": "K"},
-    {"match_id": "WC-012", "home_team": "Uruguay", "away_team": "New Zealand", "date": "2026-06-17", "time": "15:00", "venue": "BMO Field", "city": "Toronto", "country": "Canada", "stage": "Group Stage", "group": "L"},
-    {"match_id": "WC-013", "home_team": "USA", "away_team": "Nigeria", "date": "2026-06-12", "time": "20:00", "venue": "SoFi Stadium", "city": "Los Angeles", "country": "USA", "stage": "Group Stage", "group": "A"},
-    {"match_id": "WC-014", "home_team": "Mexico", "away_team": "Egypt", "date": "2026-06-13", "time": "17:00", "venue": "Estadio Azteca", "city": "Mexico City", "country": "Mexico", "stage": "Group Stage", "group": "B"},
-    {"match_id": "WC-015", "home_team": "Colombia", "away_team": "Saudi Arabia", "date": "2026-06-14", "time": "19:00", "venue": "BC Place", "city": "Vancouver", "country": "Canada", "stage": "Group Stage", "group": "C"},
-    {"match_id": "WC-016", "home_team": "Denmark", "away_team": "Tunisia", "date": "2026-06-15", "time": "14:00", "venue": "Estadio Akron", "city": "Guadalajara", "country": "Mexico", "stage": "Group Stage", "group": "D"},
-    {"match_id": "WC-017", "home_team": "Croatia", "away_team": "Nigeria", "date": "2026-06-17", "time": "20:00", "venue": "Mercedes-Benz Stadium", "city": "Atlanta", "country": "USA", "stage": "Group Stage", "group": "A"},
-    {"match_id": "WC-018", "home_team": "Japan", "away_team": "Egypt", "date": "2026-06-18", "time": "14:00", "venue": "Estadio Azteca", "city": "Mexico City", "country": "Mexico", "stage": "Group Stage", "group": "B"},
-    {"match_id": "WC-019", "home_team": "Brazil", "away_team": "USA", "date": "2026-06-19", "time": "21:00", "venue": "MetLife Stadium", "city": "New York/New Jersey", "country": "USA", "stage": "Group Stage", "group": "A"},
-    {"match_id": "WC-020", "home_team": "Argentina", "away_team": "Mexico", "date": "2026-06-20", "time": "16:00", "venue": "NRG Stadium", "city": "Houston", "country": "USA", "stage": "Group Stage", "group": "B"},
-    {"match_id": "WC-021", "home_team": "France", "away_team": "Colombia", "date": "2026-06-21", "time": "15:00", "venue": "AT&T Stadium", "city": "Dallas", "country": "USA", "stage": "Group Stage", "group": "C"},
-    {"match_id": "WC-022", "home_team": "England", "away_team": "Denmark", "date": "2026-06-22", "time": "18:00", "venue": "Gillette Stadium", "city": "Boston", "country": "USA", "stage": "Group Stage", "group": "D"},
-    {"match_id": "WC-023", "home_team": "Germany", "away_team": "Switzerland", "date": "2026-06-23", "time": "20:00", "venue": "Arrowhead Stadium", "city": "Kansas City", "country": "USA", "stage": "Group Stage", "group": "E"},
-    {"match_id": "WC-024", "home_team": "Spain", "away_team": "Portugal", "date": "2026-06-24", "time": "17:00", "venue": "Levi's Stadium", "city": "San Francisco Bay Area", "country": "USA", "stage": "Group Stage", "group": "F"},
-    {"match_id": "WC-025", "home_team": "Netherlands", "away_team": "Belgium", "date": "2026-06-25", "time": "19:00", "venue": "Hard Rock Stadium", "city": "Miami", "country": "USA", "stage": "Group Stage", "group": "G"},
-    {"match_id": "WC-026", "home_team": "Italy", "away_team": "Uruguay", "date": "2026-06-26", "time": "14:00", "venue": "Lincoln Financial Field", "city": "Philadelphia", "country": "USA", "stage": "Group Stage", "group": "J"},
-    {"match_id": "WC-027", "home_team": "Canada", "away_team": "Morocco", "date": "2026-06-18", "time": "16:00", "venue": "BMO Field", "city": "Toronto", "country": "Canada", "stage": "Group Stage", "group": "I"},
-    {"match_id": "WC-028", "home_team": "Senegal", "away_team": "Colombia", "date": "2026-06-19", "time": "14:00", "venue": "BC Place", "city": "Vancouver", "country": "Canada", "stage": "Group Stage", "group": "C"},
-    {"match_id": "WC-029", "home_team": "South Korea", "away_team": "New Zealand", "date": "2026-06-20", "time": "18:00", "venue": "Estadio BBVA", "city": "Monterrey", "country": "Mexico", "stage": "Group Stage", "group": "J"},
-    {"match_id": "WC-030", "home_team": "Morocco", "away_team": "Canada", "date": "2026-06-21", "time": "20:00", "venue": "Estadio Akron", "city": "Guadalajara", "country": "Mexico", "stage": "Group Stage", "group": "F"},
-    {"match_id": "WC-031", "home_team": "Ecuador", "away_team": "Belgium", "date": "2026-06-22", "time": "15:00", "venue": "Lumen Field", "city": "Seattle", "country": "USA", "stage": "Group Stage", "group": "G"},
-    {"match_id": "WC-032", "home_team": "Australia", "away_team": "Switzerland", "date": "2026-06-23", "time": "17:00", "venue": "Estadio BBVA", "city": "Monterrey", "country": "Mexico", "stage": "Group Stage", "group": "E"},
-    {"match_id": "WC-033", "home_team": "Ghana", "away_team": "Cameroon", "date": "2026-06-24", "time": "19:00", "venue": "Estadio Akron", "city": "Guadalajara", "country": "Mexico", "stage": "Group Stage", "group": "H"},
-    {"match_id": "WC-034", "home_team": "Iran", "away_team": "Tunisia", "date": "2026-06-25", "time": "14:00", "venue": "Estadio BBVA", "city": "Monterrey", "country": "Mexico", "stage": "Group Stage", "group": "D"},
-    {"match_id": "WC-035", "home_team": "Saudi Arabia", "away_team": "Senegal", "date": "2026-06-26", "time": "18:00", "venue": "BC Place", "city": "Vancouver", "country": "Canada", "stage": "Group Stage", "group": "C"},
-    {"match_id": "WC-036", "home_team": "Nigeria", "away_team": "Croatia", "date": "2026-06-27", "time": "16:00", "venue": "Mercedes-Benz Stadium", "city": "Atlanta", "country": "USA", "stage": "Group Stage", "group": "A"},
-    {"match_id": "WC-037", "home_team": "Egypt", "away_team": "Japan", "date": "2026-06-27", "time": "20:00", "venue": "Estadio Azteca", "city": "Mexico City", "country": "Mexico", "stage": "Group Stage", "group": "B"},
-    {"match_id": "WC-038", "home_team": "Cameroon", "away_team": "Australia", "date": "2026-06-28", "time": "15:00", "venue": "Lumen Field", "city": "Seattle", "country": "USA", "stage": "Group Stage", "group": "K"},
-    {"match_id": "WC-039", "home_team": "New Zealand", "away_team": "South Korea", "date": "2026-06-28", "time": "19:00", "venue": "BMO Field", "city": "Toronto", "country": "Canada", "stage": "Group Stage", "group": "L"},
-    {"match_id": "WC-040", "home_team": "Tunisia", "away_team": "England", "date": "2026-06-29", "time": "14:00", "venue": "NRG Stadium", "city": "Houston", "country": "USA", "stage": "Group Stage", "group": "D"},
-    {"match_id": "WC-041", "home_team": "Ecuador", "away_team": "Netherlands", "date": "2026-06-29", "time": "18:00", "venue": "Hard Rock Stadium", "city": "Miami", "country": "USA", "stage": "Group Stage", "group": "G"},
-    {"match_id": "WC-042", "home_team": "Portugal", "away_team": "Germany", "date": "2026-06-30", "time": "17:00", "venue": "Arrowhead Stadium", "city": "Kansas City", "country": "USA", "stage": "Group Stage", "group": "H"},
-    {"match_id": "WC-043", "home_team": "Belgium", "away_team": "Ecuador", "date": "2026-06-30", "time": "21:00", "venue": "SoFi Stadium", "city": "Los Angeles", "country": "USA", "stage": "Group Stage", "group": "G"},
-    {"match_id": "WC-044", "home_team": "Italy", "away_team": "New Zealand", "date": "2026-07-01", "time": "15:00", "venue": "Lincoln Financial Field", "city": "Philadelphia", "country": "USA", "stage": "Group Stage", "group": "J"},
-    {"match_id": "WC-045", "home_team": "Uruguay", "away_team": "South Korea", "date": "2026-07-01", "time": "20:00", "venue": "Levi's Stadium", "city": "San Francisco Bay Area", "country": "USA", "stage": "Group Stage", "group": "L"},
-    {"match_id": "WC-046", "home_team": "Mexico", "away_team": "Argentina", "date": "2026-07-02", "time": "16:00", "venue": "Estadio Azteca", "city": "Mexico City", "country": "Mexico", "stage": "Group Stage", "group": "B"},
-    {"match_id": "WC-047", "home_team": "USA", "away_team": "Brazil", "date": "2026-07-02", "time": "21:00", "venue": "AT&T Stadium", "city": "Dallas", "country": "USA", "stage": "Group Stage", "group": "A"},
-    {"match_id": "WC-048", "home_team": "Canada", "away_team": "France", "date": "2026-07-03", "time": "19:00", "venue": "BMO Field", "city": "Toronto", "country": "Canada", "stage": "Group Stage", "group": "I"},
-]
+
+def _build_matches() -> list[dict]:
+    matches = []
+    for i, (et_date, et_hour, group, home, away, city) in enumerate(RAW_FIXTURES, 1):
+        venue, country, tz = CITY_INFO[city]
+        et_dt = datetime.strptime(et_date, "%Y-%m-%d").replace(hour=et_hour, tzinfo=ET)
+        local = et_dt.astimezone(ZoneInfo(tz))
+        matches.append({
+            "match_id": f"WC-{i:03d}",
+            "home_team": home,
+            "away_team": away,
+            "date": local.strftime("%Y-%m-%d"),
+            "time": local.strftime("%H:%M"),
+            "venue": venue,
+            "city": city,
+            "country": country,
+            "stage": "Group Stage",
+            "group": group,
+        })
+    return matches
+
+
+MATCHES = _build_matches()
 
 
 def seed_matches():
-    matches_col = get_collection("matches")
-    existing = matches_col.count_documents({})
-    if existing > 0:
-        logger.info("Database already contains %d matches — skipping seed", existing)
-        return
+    """Sync the real 2026 World Cup group-stage fixtures into MongoDB.
 
-    matches_col.insert_many(MATCHES)
-    for city_name, venue, country in HOST_CITIES:
-        matches_col.update_many(
-            {"city": city_name},
-            {"$set": {"venue": venue, "country": country}},
-        )
-    logger.info("Seeded %d World Cup 2026 matches across %d host cities", len(MATCHES), len(HOST_CITIES))
+    Idempotent: upserts by match_id, so re-running updates existing docs in place
+    rather than duplicating or requiring a destructive wipe.
+    """
+    matches_col = get_collection("matches")
+    for m in MATCHES:
+        matches_col.replace_one({"match_id": m["match_id"]}, m, upsert=True)
+    logger.info("Synced %d real World Cup 2026 group-stage matches across 16 host cities", len(MATCHES))
 
 
 if __name__ == "__main__":

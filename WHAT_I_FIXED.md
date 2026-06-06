@@ -78,6 +78,21 @@ A log of the changes made on the `unify-app` branch, why they were needed, and h
 
 ---
 
+## 6. The seed data itself was fabricated — replaced with the real fixtures
+
+**Symptom:** Plans featured teams not in the tournament (e.g. Nigeria, who failed to qualify) and matchups that never existed (Nigeria vs USA in LA). It looked like model hallucination.
+
+**Root cause:** `seed.py` was hand-authored placeholder data, written before the real draw and never updated. The whole pipeline (`search_matches` → DB → plan) faithfully served fake fixtures — garbage in, garbage out. Every earlier fix addressed the plumbing; the *source data* was the problem. "Grounding" only guarantees consistency with the DB, not with reality.
+
+**Confirmed via web search:**
+- Nigeria did not qualify (lost the CAF play-off to DR Congo on penalties).
+- The final draw was held 5 Dec 2025; the real opener is Mexico vs South Africa at Estadio Azteca.
+- The seed was missing 16 qualified nations (Qatar, Uzbekistan, Iraq, Cabo Verde, Curaçao, Haiti, Panama, Paraguay, Norway, Scotland, Sweden, Türkiye, Bosnia, Czechia, DR Congo, Côte d'Ivoire).
+
+**Fix:** Rebuilt `seed.py` with all **72 real group-stage fixtures** from the final draw — real teams (validated: 12 groups × 6 matches, each team plays 3), the 16 real host stadiums, and kickoff times converted from ET to each venue's local time via `zoneinfo`. `seed_matches()` is now idempotent (upsert by `match_id`, no destructive wipe). Verified end-to-end: a USA plan now returns USA vs Paraguay / Australia / Turkey.
+
+**Files:** `backend/seed.py`.
+
 ## Local run notes
 
 - The app runs on **`:8002`** and the Vite dev server on **`:5174`** because ports `8000`/`5173` were occupied by another local project. `frontend/vite.config.js` proxy was pointed at `:8002`.
