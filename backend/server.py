@@ -197,10 +197,11 @@ async def health():
     )
 
 
-frontend_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
-if os.path.isdir(frontend_dist):
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
-    logger.info("Frontend SPA mounted from %s", frontend_dist)
+if os.getenv("MOUNT_FRONTEND", "").lower() in ("1", "true", "yes"):
+    frontend_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
+    if os.path.isdir(frontend_dist):
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+        logger.info("Frontend SPA mounted from %s", frontend_dist)
 
 if __name__ == "__main__":
     import uvicorn
