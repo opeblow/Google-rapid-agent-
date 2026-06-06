@@ -40,13 +40,12 @@ export default function OnboardingWizard() {
   }
 
   const buildMessage = () => {
-    return `Plan my World Cup 2026 trip! I support ${teams.join(', ')}. ` +
-      `My budget is $${budget}. I'm traveling from ${departure || 'my home country'}. ` +
+    return `Build a COMPLETE World Cup 2026 trip plan. I support ${teams.join(', ')}. ` +
+      `Budget: $${budget}. Departure: ${departure || 'my home country'}. ` +
       `Dates: ${dateStart || 'flexible'} to ${dateEnd || 'flexible'}. ` +
-      `${travelers} traveler(s). ` +
-      `Hotel preference: ${preferences.hotelStars}-star. Transport: ${preferences.transport}. ` +
+      `Travelers: ${travelers}. Hotel: ${preferences.hotelStars}-star. Transport: ${preferences.transport}. ` +
       `Interests: ${(preferences.interests || []).join(', ') || 'anything fun'}. ` +
-      `Build a full itinerary with matches, hotels, daily schedule, and budget breakdown!`
+      `IMPORTANT: Call search_matches() to find my team's matches, then call save_plan() with matches, budget, hotel, transport, and daily schedule. Do it now.`
   }
 
   const handleGenerate = async () => {
