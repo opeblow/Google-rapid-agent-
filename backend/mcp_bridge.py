@@ -33,13 +33,17 @@ async def init_mcp() -> bool:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
+        # Run the MCP server READ-ONLY: the agent may query the database but must never
+        # mutate it. Trip plans are persisted through the controlled save_plan tool, not
+        # raw MCP writes — this prevents the model from corrupting the source match data.
         server_params = StdioServerParameters(
             command="npx",
-            args=["-y", "mongodb-mcp-server@latest"],
+            args=["-y", "mongodb-mcp-server@latest", "--readOnly"],
             env={
                 **os.environ,
                 "MONGODB_CONNECTION_STRING": MONGODB_URI,
                 "MONGODB_DATABASE_NAME": DATABASE_NAME,
+                "MDB_MCP_READ_ONLY": "true",
             },
         )
 
