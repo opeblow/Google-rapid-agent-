@@ -96,9 +96,9 @@ curl http://localhost:8000/api/health
 
 ## Submission Requirements
 
-- **Hosted Project**: Deployed on Render/GCP — contact for URL
-- **Code Repository**: This repo — public with Apache 2.0 license
-- **Demo Video**: See `demo/` or contact for link
+- **Hosted Project**: https://google-rapid-agent.onrender.com
+- **Code Repository**: https://github.com/opeblow/Google-rapid-agent- (public, Apache 2.0)
+- **Demo Video**: *(add YouTube link here)*
 - **Track**: MongoDB Partner Track
 
 ---
