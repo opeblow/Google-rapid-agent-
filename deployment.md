@@ -21,6 +21,31 @@ Since the merge, the agent runs **in-process inside the backend** — there is o
 
 ---
 
+## Deploy on Google Cloud Run
+
+Deploy the backend container on Cloud Run for a fully managed Google Cloud experience:
+
+```bash
+# 1. Build and push to Artifact Registry
+gcloud builds submit --config cloudbuild.yaml
+
+# 2. Deploy to Cloud Run
+gcloud run deploy wc2026-agent \
+  --image us-central1-docker.pkg.dev/$PROJECT_ID/wc2026-agent/backend:latest \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 1Gi \
+  --cpu 2 \
+  --timeout 300 \
+  --set-env-vars "GEMINI_MODEL=gemini-3-flash-preview,DATABASE_NAME=worldcup_2026" \
+  --set-secrets "GOOGLE_API_KEY=gemini-api-key:latest,MONGODB_URI=mongodb-uri:latest"
+```
+
+This pairs well with **Google Cloud Agent Builder** — the agent service can be registered as a custom tool in Vertex AI Agent Builder's agent orchestration layer.
+
+---
+
 ## 1. Backend Deployment
 
 The agent's MongoDB MCP integration shells out to `npx mongodb-mcp-server`, so the runtime needs **Node.js**. The repo's root `Dockerfile` already installs both Python and Node.
