@@ -57,9 +57,9 @@ export default function ChatInterface({ sessionId, onPlanUpdate }) {
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
-        <div className="w-8 h-8 rounded-full bg-gray-950 dark:bg-white flex items-center justify-center text-white dark:text-gray-950 text-sm font-bold">WC</div>
+        <div className="w-8 h-8 rounded-full bg-gray-950 dark:bg-white flex items-center justify-center text-white dark:text-gray-950 text-sm font-bold">FF</div>
         <div>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">World Cup Assistant</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">Fanfare</p>
           <p className="text-xs text-gray-400">AI Travel Agent</p>
         </div>
       </div>
