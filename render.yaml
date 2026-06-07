@@ -4,21 +4,11 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     envVars:
-      - key: OPENROUTER_API_KEY
+      - key: GOOGLE_API_KEY
         sync: false
-      - key: OPENROUTER_MODEL
-        value: google/gemini-3-flash-preview
+      - key: GEMINI_MODEL
+        value: gemini-3-flash-preview
       - key: MONGODB_URI
         sync: false
       - key: DATABASE_NAME
         value: worldcup_2026
-
-  - type: web
-    name: wc2026-frontend
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    envVars:
-      - key: VITE_API_URL
-        value: https://wc2026-app.onrender.com

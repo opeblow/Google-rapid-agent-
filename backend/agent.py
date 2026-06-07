@@ -1,16 +1,23 @@
-"""In-process AI agent: Gemini (via OpenRouter) function-calling loop + MongoDB MCP bridge.
+"""In-process AI agent: Gemini (Google Generative AI) function-calling loop + MongoDB MCP bridge.
 
-This used to be a standalone FastAPI microservice (`agent_server.py`). It now runs in the
-same process as the backend gateway — `server.py` calls `process_message()` directly instead
-of proxying over HTTP.
+The agent runs in the same process as the backend gateway — `server.py` calls `process_message()`
+directly instead of proxying over HTTP.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import warnings
 from typing import Any
 
-from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
+
+import google.generativeai as genai
+from google.generativeai import protos
+from google.generativeai.types import FunctionDeclaration, Tool
+
+from config import GOOGLE_API_KEY, GEMINI_MODEL
 from tools import TOOL_DEFINITIONS as CUSTOM_TOOL_DEFS
 from tools import TOOL_REGISTRY as CUSTOM_TOOL_REGISTRY
 
@@ -40,28 +47,20 @@ SYSTEM_PROMPT = (
 
 MAX_TOOL_TURNS = 6
 
-client: Any = None
+model: genai.GenerativeModel | None = None
 COMBINED_TOOL_DEFS: list[dict] = list(CUSTOM_TOOL_DEFS)
 MCP_TOOL_NAMES: set[str] = set()
 
 
 async def init_agent() -> None:
-    """Initialise the OpenRouter client and (optionally) the MongoDB MCP bridge."""
-    global client, COMBINED_TOOL_DEFS, MCP_TOOL_NAMES
+    """Initialise the Gemini model and (optionally) the MongoDB MCP bridge."""
+    global model, COMBINED_TOOL_DEFS, MCP_TOOL_NAMES
 
-    if not OPENROUTER_API_KEY:
-        logger.error("OPENROUTER_API_KEY is not set. Agent will not function until it is configured.")
+    if not GOOGLE_API_KEY:
+        logger.error("GOOGLE_API_KEY is not set. Agent will not function until it is configured.")
     else:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(
-            api_key=OPENROUTER_API_KEY,
-            base_url=OPENROUTER_BASE_URL,
-            default_headers={
-                "HTTP-Referer": "http://localhost:5173",
-                "X-Title": "WC2026 AI Trip Planner",
-            },
-        )
-        logger.info("OpenRouter client initialized (model=%s)", OPENROUTER_MODEL)
+        genai.configure(api_key=GOOGLE_API_KEY)
+        logger.info("Google Generative AI configured (model=%s)", GEMINI_MODEL)
 
     from mcp_bridge import get_mcp_function_definitions, init_mcp
 
@@ -75,6 +74,14 @@ async def init_agent() -> None:
     else:
         logger.info("Running with %d custom tools only", len(CUSTOM_TOOL_DEFS))
 
+    tool_list = _build_google_tools()
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        system_instruction=SYSTEM_PROMPT,
+        tools=tool_list,
+    )
+    logger.info("Gemini model initialized: %s with %d tools", GEMINI_MODEL, len(COMBINED_TOOL_DEFS))
+
 
 async def close_agent() -> None:
     from mcp_bridge import close_mcp
@@ -83,9 +90,9 @@ async def close_agent() -> None:
 
 def agent_status() -> dict:
     return {
-        "provider": "openrouter",
-        "model": OPENROUTER_MODEL,
-        "llm": "connected" if client else "not configured",
+        "provider": "google_generativeai",
+        "model": GEMINI_MODEL,
+        "llm": "connected" if model else "not configured",
         "mcp": f"enabled ({len(MCP_TOOL_NAMES)} tools)" if MCP_TOOL_NAMES else "disabled",
         "custom_tools": len(CUSTOM_TOOL_DEFS),
         "total_tools": len(COMBINED_TOOL_DEFS),
@@ -129,23 +136,16 @@ def _sanitize_schema(obj):
     return obj
 
 
-def _build_tools():
-    if not client:
-        return None
-
-    tools = []
+def _build_google_tools() -> list[Tool]:
+    declarations = []
     for td in COMBINED_TOOL_DEFS:
-        # Deep sanitize parameters to keep only provider-compatible JSON schema
         params = _sanitize_schema(dict(td["parameters"]))
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": td["name"],
-                "description": td["description"],
-                "parameters": params,
-            },
-        })
-    return tools
+        declarations.append(FunctionDeclaration(
+            name=td["name"],
+            description=td["description"],
+            parameters=params,
+        ))
+    return [Tool(function_declarations=declarations)] if declarations else []
 
 
 async def _execute_tool_async(name: str, args: dict) -> dict:
@@ -163,77 +163,85 @@ async def _execute_tool_async(name: str, args: dict) -> dict:
     return {"result": {"error": f"Unknown tool: {name}"}}
 
 
+async def _generate_with_retry(
+    contents: list,
+    max_retries: int = 5,
+    **kwargs,
+) -> Any:
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return await model.generate_content_async(contents=contents, **kwargs)
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+            if "429" in error_str or "resource_exhausted" in error_str or "rate" in error_str:
+                if attempt < max_retries - 1:
+                    wait = (2 ** attempt) + (0.5 * attempt)
+                    logger.warning("Rate limited — retrying in %.1fs (attempt %d/%d)", wait, attempt + 1, max_retries)
+                    await asyncio.sleep(wait)
+                    continue
+            raise
+    raise last_error
+
+
 async def process_message(
     message: str,
     history: list[dict],
 ) -> tuple[str, dict | None, list[dict] | None]:
-    if not client:
-        return "Agent is not configured. Please set OPENROUTER_API_KEY and restart.", None, None
+    if not model:
+        return "Agent is not configured. Please set GOOGLE_API_KEY and restart.", None, None
 
-    tools = _build_tools()
-
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    contents: list = []
     for msg in history:
-        role = "user" if msg.get("role") == "user" else "assistant"
+        role = msg.get("role", "user")
         text = msg.get("text", msg.get("content", ""))
-        if text:
-            messages.append({"role": role, "content": text})
+        if not text:
+            continue
+        g_role = "model" if role == "assistant" else "user"
+        contents.append({"role": g_role, "parts": [{"text": text}]})
 
-    messages.append({"role": "user", "content": message})
+    contents.append({"role": "user", "parts": [{"text": message}]})
 
     tool_calls_log: list[dict] = []
     latest_plan_data: dict | None = None
 
     for turn in range(MAX_TOOL_TURNS):
         try:
-            resp = await client.chat.completions.create(
-                model=OPENROUTER_MODEL,
-                messages=messages,
-                tools=tools,
-                temperature=0.5,
-                max_tokens=2048,
+            response = await _generate_with_retry(
+                contents,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.5,
+                    max_output_tokens=2048,
+                ),
             )
         except Exception as e:
-            logger.error("OpenRouter API call failed: %s", e, exc_info=True)
-            return f"I'm sorry, I encountered an error communicating with the AI service: {e}", latest_plan_data, (tool_calls_log if tool_calls_log else None)
+            logger.error("Gemini API call failed: %s", e, exc_info=True)
+            return f"I'm sorry, I encountered an error: {e}", latest_plan_data, (tool_calls_log if tool_calls_log else None)
 
-        if not resp.choices:
-            logger.warning("No choices returned by the model")
+        if not response.candidates:
+            logger.warning("No candidates returned by the model")
             return "I'm sorry, I couldn't process that request.", None, None
 
-        msg = resp.choices[0].message
-        tool_calls = msg.tool_calls or []
+        candidate = response.candidates[0]
+        function_calls = []
+        text_parts = []
+        for part in candidate.content.parts:
+            if part.function_call:
+                function_calls.append(part.function_call)
+            if part.text:
+                text_parts.append(part.text)
 
-        if not tool_calls:
-            reply = (msg.content or "").strip() or "Let me know how I can help with your World Cup trip!"
+        if not function_calls:
+            reply = "".join(text_parts).strip() or "Let me know how I can help with your World Cup trip!"
             return reply, latest_plan_data, (tool_calls_log if tool_calls_log else None)
 
-        # Echo the assistant turn back, preserving Gemini 3 "thought signatures"
-        # (reasoning_details) — required by Google for multi-turn function calling.
-        assistant_msg: dict[str, Any] = {
-            "role": "assistant",
-            "content": msg.content or "",
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in tool_calls
-            ],
-        }
-        reasoning_details = getattr(msg, "reasoning_details", None)
-        if reasoning_details:
-            assistant_msg["reasoning_details"] = reasoning_details
-        messages.append(assistant_msg)
+        contents.append(candidate.content)
 
-        for tc in tool_calls:
-            fc_name = tc.function.name
-            try:
-                fc_args = json.loads(tc.function.arguments) if tc.function.arguments else {}
-            except json.JSONDecodeError:
-                logger.warning("Could not parse tool arguments: %s", tc.function.arguments)
-                fc_args = {}
+        function_response_parts = []
+        for fc in function_calls:
+            fc_name = fc.name
+            fc_args = dict(fc.args) if fc.args else {}
             logger.info("Turn %d — model called: %s(%s)", turn + 1, fc_name, fc_args)
 
             tool_result = await _execute_tool_async(fc_name, fc_args)
@@ -250,10 +258,16 @@ async def process_message(
                 if isinstance(plan_data_raw, dict) and plan_data_raw.get("plan_id"):
                     latest_plan_data = plan_data_raw
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": json.dumps(tool_result, default=str),
-            })
+            function_response_parts.append(protos.Part(
+                function_response=protos.FunctionResponse(
+                    name=fc_name,
+                    response=tool_result,
+                )
+            ))
+
+        contents.append(protos.Content(
+            role="user",
+            parts=function_response_parts,
+        ))
 
     return "Let me know if you'd like to refine the plan further!", latest_plan_data, tool_calls_log
