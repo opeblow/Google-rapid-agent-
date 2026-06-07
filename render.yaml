@@ -4,11 +4,18 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     envVars:
-      - key: GOOGLE_API_KEY
+      - key: LLM_PROVIDER
+        value: vertex_ai
+      - key: VERTEX_AI_PROJECT
         sync: false
+      - key: VERTEX_AI_LOCATION
+        value: us-central1
       - key: GEMINI_MODEL
         value: gemini-3-flash-preview
       - key: MONGODB_URI
         sync: false
       - key: DATABASE_NAME
         value: worldcup_2026
+      # Uncomment for AI Studio fallback:
+      # - key: GOOGLE_API_KEY
+      #   sync: false

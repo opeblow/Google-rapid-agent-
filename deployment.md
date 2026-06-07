@@ -4,7 +4,7 @@ How to deploy WC2026 Agent: the **backend** (unified FastAPI app) on a cloud hos
 
 ```
   Frontend (React SPA)  ──HTTPS──>  Backend (FastAPI + in-process agent)  ──>  MongoDB Atlas
-                                     └─ Gemini via Google Generative AI SDK
+                                     └─ Vertex AI (Gemini via google-cloud-aiplatform SDK)
                                      └─ MongoDB MCP Server (read-only, via npx)
 ```
 
@@ -16,7 +16,10 @@ Since the merge, the agent runs **in-process inside the backend** — there is o
 
 - **MongoDB Atlas** cluster + connection string (`mongodb+srv://…`).
   - Atlas → **Network Access** → allow `0.0.0.0/0` (cloud hosts have dynamic IPs).
-- **Google AI Studio** API key (https://aistudio.google.com/apikey).
+- **Google Cloud project** with Vertex AI API enabled.
+  - A **service account** with `roles/aiplatform.user` IAM role.
+  - For local dev, download the service account key and set `GOOGLE_APPLICATION_CREDENTIALS`.
+  - For Cloud Run, attach the service account to the Cloud Run service.
 - GitHub repo connected to your deploy platform.
 
 ---
@@ -38,11 +41,12 @@ gcloud run deploy wc2026-agent \
   --memory 1Gi \
   --cpu 2 \
   --timeout 300 \
-  --set-env-vars "GEMINI_MODEL=gemini-3-flash-preview,DATABASE_NAME=worldcup_2026" \
-  --set-secrets "GOOGLE_API_KEY=gemini-api-key:latest,MONGODB_URI=mongodb-uri:latest"
+  --service-account "wc2026-agent-sa@$PROJECT_ID.iam.gserviceaccount.com" \
+  --set-env-vars "LLM_PROVIDER=vertex_ai,VERTEX_AI_PROJECT=$PROJECT_ID,VERTEX_AI_LOCATION=us-central1,GEMINI_MODEL=gemini-3-flash-preview,DATABASE_NAME=worldcup_2026" \
+  --set-secrets "MONGODB_URI=mongodb-uri:latest"
 ```
 
-This pairs well with **Google Cloud Agent Builder** — the agent service can be registered as a custom tool in Vertex AI Agent Builder's agent orchestration layer.
+The service runs on **Vertex AI** (Google Cloud AI platform) — fully compliant with the hackathon's requirement for Google Cloud AI tools.
 
 ---
 
@@ -53,10 +57,14 @@ The agent's MongoDB MCP integration shells out to `npx mongodb-mcp-server`, so t
 ### Environment variables
 | Key | Value | Notes |
 |-----|-------|-------|
-| `GOOGLE_API_KEY` | `AIza...` | required (secret) |
+| `LLM_PROVIDER` | `vertex_ai` | `vertex_ai` (default) or `ai_studio` |
+| `VERTEX_AI_PROJECT` | `my-gcp-project` | Google Cloud project ID |
+| `VERTEX_AI_LOCATION` | `us-central1` | GCP region |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | optional (this is the default) |
 | `MONGODB_URI` | `mongodb+srv://…` | required (secret) |
 | `DATABASE_NAME` | `worldcup_2026` | |
+| *(AI Studio fallback)* | | |
+| `GOOGLE_API_KEY` | `AIza...` | only needed when `LLM_PROVIDER=ai_studio` |
 
 `PORT` is provided automatically by most platforms; the container's `start_hf.py` reads it.
 
@@ -66,7 +74,7 @@ The agent's MongoDB MCP integration shells out to `npx mongodb-mcp-server`, so t
 ### Verify
 ```bash
 curl https://<your-service>.com/api/health
-# {"status":"ok","agent":"ready","database":"connected","provider":"google_generativeai",
+# {"status":"ok","agent":"ready","database":"connected","provider":"vertex_ai",
 #  "model":"gemini-3-flash-preview","llm":"connected","mcp":"enabled (16 tools)", ...}
 ```
 - `mcp: "enabled (N tools)"` → MCP bridge is up (Node present).
@@ -98,7 +106,7 @@ cd backend && python -m uvicorn server:app --host 127.0.0.1 --port 8000
 # frontend (port 5173) — create frontend/.env.local with VITE_API_URL=http://localhost:8000
 cd frontend && npm run dev
 ```
-Root `.env` holds `GOOGLE_API_KEY`, `MONGODB_URI`, `DATABASE_NAME` for the backend. Seed real fixtures with `cd backend && python seed.py` (idempotent).
+Root `.env` holds Vertex AI settings (`VERTEX_AI_PROJECT`, `VERTEX_AI_LOCATION`), `MONGODB_URI`, `DATABASE_NAME` for the backend. For local dev without a GCP service account, set `LLM_PROVIDER=ai_studio` and `GOOGLE_API_KEY`. Seed real fixtures with `cd backend && python seed.py` (idempotent).
 
 ---
 
@@ -110,4 +118,5 @@ Root `.env` holds `GOOGLE_API_KEY`, `MONGODB_URI`, `DATABASE_NAME` for the backe
 | Chat hits the wrong backend / CORS errors | `VITE_API_URL` missing or wrong |
 | `/api/health` shows `mcp: "disabled"` | Runtime has no Node → install Node.js or use Docker |
 | `/api/health` shows `database: "disconnected"` | Atlas IP allowlist missing or wrong `MONGODB_URI` |
-| Plans empty / agent error | Bad/at-quota `GOOGLE_API_KEY` — the code retries on 429 automatically |
+| `/api/health` shows `llm: "not configured"` | `VERTEX_AI_PROJECT` not set or ADC not configured — verify service account or set `LLM_PROVIDER=ai_studio` with `GOOGLE_API_KEY` |
+| Plans empty / agent error | Vertex AI quota exhausted or auth issue — the code retries on 429 automatically |

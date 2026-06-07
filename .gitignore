@@ -35,6 +35,9 @@ yarn-error.log*
 Thumbs.db
 Desktop.ini
 
+# Secrets
+gcp-key.json
+
 # Project specific
 pictures/
 *.log

@@ -1,4 +1,4 @@
-"""In-process AI agent: Gemini (Google Generative AI) function-calling loop + MongoDB MCP bridge.
+"""In-process AI agent: Gemini (Vertex AI) function-calling loop + MongoDB MCP bridge.
 
 The agent runs in the same process as the backend gateway — `server.py` calls `process_message()`
 directly instead of proxying over HTTP.
@@ -8,16 +8,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import warnings
+import os
 from typing import Any
 
-warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
-
-import google.generativeai as genai
-from google.generativeai import protos
-from google.generativeai.types import FunctionDeclaration, Tool
-
-from config import GOOGLE_API_KEY, GEMINI_MODEL
+from config import (
+    GEMINI_MODEL,
+    GOOGLE_API_KEY,
+    LLM_PROVIDER,
+    VERTEX_AI_LOCATION,
+    VERTEX_AI_PROJECT,
+)
 from tools import TOOL_DEFINITIONS as CUSTOM_TOOL_DEFS
 from tools import TOOL_REGISTRY as CUSTOM_TOOL_REGISTRY
 
@@ -47,20 +47,20 @@ SYSTEM_PROMPT = (
 
 MAX_TOOL_TURNS = 6
 
-model: genai.GenerativeModel | None = None
+model: Any = None
 COMBINED_TOOL_DEFS: list[dict] = list(CUSTOM_TOOL_DEFS)
 MCP_TOOL_NAMES: set[str] = set()
 
+_use_vertex = LLM_PROVIDER == "vertex_ai"
+
 
 async def init_agent() -> None:
-    """Initialise the Gemini model and (optionally) the MongoDB MCP bridge."""
     global model, COMBINED_TOOL_DEFS, MCP_TOOL_NAMES
 
-    if not GOOGLE_API_KEY:
-        logger.error("GOOGLE_API_KEY is not set. Agent will not function until it is configured.")
+    if _use_vertex:
+        _init_vertex()
     else:
-        genai.configure(api_key=GOOGLE_API_KEY)
-        logger.info("Google Generative AI configured (model=%s)", GEMINI_MODEL)
+        _init_ai_studio()
 
     from mcp_bridge import get_mcp_function_definitions, init_mcp
 
@@ -75,12 +75,46 @@ async def init_agent() -> None:
         logger.info("Running with %d custom tools only", len(CUSTOM_TOOL_DEFS))
 
     tool_list = _build_google_tools()
-    model = genai.GenerativeModel(
-        model_name=GEMINI_MODEL,
-        system_instruction=SYSTEM_PROMPT,
-        tools=tool_list,
-    )
-    logger.info("Gemini model initialized: %s with %d tools", GEMINI_MODEL, len(COMBINED_TOOL_DEFS))
+    model = _create_model(tool_list)
+    logger.info("Gemini model initialized (%s): %s with %d tools",
+                LLM_PROVIDER, GEMINI_MODEL, len(COMBINED_TOOL_DEFS))
+
+
+def _init_vertex() -> None:
+    import vertexai
+    project = VERTEX_AI_PROJECT or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if project:
+        vertexai.init(project=project, location=VERTEX_AI_LOCATION)
+        logger.info("Vertex AI initialized (project=%s, location=%s)", project, VERTEX_AI_LOCATION)
+    else:
+        vertexai.init(location=VERTEX_AI_LOCATION)
+        logger.info("Vertex AI initialized with ADC (location=%s)", VERTEX_AI_LOCATION)
+
+
+def _init_ai_studio() -> None:
+    import google.generativeai as genai
+    if not GOOGLE_API_KEY:
+        logger.error("GOOGLE_API_KEY is not set. Agent will not function until it is configured.")
+    else:
+        genai.configure(api_key=GOOGLE_API_KEY)
+        logger.info("Google AI Studio configured (model=%s)", GEMINI_MODEL)
+
+
+def _create_model(tool_list: list) -> Any:
+    if _use_vertex:
+        from vertexai.preview.generative_models import GenerativeModel
+        return GenerativeModel(
+            model_name=GEMINI_MODEL,
+            system_instruction=SYSTEM_PROMPT,
+            tools=tool_list,
+        )
+    else:
+        import google.generativeai as genai
+        return genai.GenerativeModel(
+            model_name=GEMINI_MODEL,
+            system_instruction=SYSTEM_PROMPT,
+            tools=tool_list,
+        )
 
 
 async def close_agent() -> None:
@@ -90,7 +124,7 @@ async def close_agent() -> None:
 
 def agent_status() -> dict:
     return {
-        "provider": "google_generativeai",
+        "provider": LLM_PROVIDER,
         "model": GEMINI_MODEL,
         "llm": "connected" if model else "not configured",
         "mcp": f"enabled ({len(MCP_TOOL_NAMES)} tools)" if MCP_TOOL_NAMES else "disabled",
@@ -136,8 +170,12 @@ def _sanitize_schema(obj):
     return obj
 
 
-def _build_google_tools() -> list[Tool]:
+def _build_google_tools() -> list:
     declarations = []
+    if _use_vertex:
+        from vertexai.preview.generative_models import FunctionDeclaration, Tool
+    else:
+        from google.generativeai.types import FunctionDeclaration, Tool
     for td in COMBINED_TOOL_DEFS:
         params = _sanitize_schema(dict(td["parameters"]))
         declarations.append(FunctionDeclaration(
@@ -190,7 +228,8 @@ async def process_message(
     history: list[dict],
 ) -> tuple[str, dict | None, list[dict] | None]:
     if not model:
-        return "Agent is not configured. Please set GOOGLE_API_KEY and restart.", None, None
+        provider_hint = "VERTEX_AI_PROJECT" if _use_vertex else "GOOGLE_API_KEY"
+        return f"Agent is not configured. Please set {provider_hint} and restart.", None, None
 
     contents: list = []
     for msg in history:
@@ -206,14 +245,16 @@ async def process_message(
     tool_calls_log: list[dict] = []
     latest_plan_data: dict | None = None
 
+    generation_config = {
+        "temperature": 0.5,
+        "max_output_tokens": 2048,
+    }
+
     for turn in range(MAX_TOOL_TURNS):
         try:
             response = await _generate_with_retry(
                 contents,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.5,
-                    max_output_tokens=2048,
-                ),
+                generation_config=generation_config,
             )
         except Exception as e:
             logger.error("Gemini API call failed: %s", e, exc_info=True)
@@ -258,16 +299,31 @@ async def process_message(
                 if isinstance(plan_data_raw, dict) and plan_data_raw.get("plan_id"):
                     latest_plan_data = plan_data_raw
 
-            function_response_parts.append(protos.Part(
-                function_response=protos.FunctionResponse(
-                    name=fc_name,
-                    response=tool_result,
-                )
-            ))
+            function_response_parts.append(_make_function_response(fc_name, tool_result))
 
-        contents.append(protos.Content(
-            role="user",
-            parts=function_response_parts,
-        ))
+        contents.append(_make_content(function_response_parts))
 
     return "Let me know if you'd like to refine the plan further!", latest_plan_data, tool_calls_log
+
+
+def _make_function_response(name: str, response_data: dict) -> Any:
+    if _use_vertex:
+        from vertexai.preview.generative_models import Part
+        return Part.from_function_response(name=name, response=response_data)
+    else:
+        from google.generativeai import protos
+        return protos.Part(
+            function_response=protos.FunctionResponse(
+                name=name,
+                response=response_data,
+            )
+        )
+
+
+def _make_content(parts: list) -> Any:
+    if _use_vertex:
+        from vertexai.preview.generative_models import Content
+        return Content(role="user", parts=parts)
+    else:
+        from google.generativeai import protos
+        return protos.Content(role="user", parts=parts)
