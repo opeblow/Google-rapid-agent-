@@ -57,8 +57,8 @@ export default function Landing() {
         className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 sm:px-10 py-5 bg-gray-950/80 backdrop-blur-md border-b border-gray-800"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-sm font-bold">WC</div>
-          <span className="font-display font-bold text-white text-lg tracking-tight">2026 Agent</span>
+          <div className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-sm font-bold">FF</div>
+          <span className="font-display font-bold text-white text-lg tracking-tight">Fanfare</span>
         </div>
         <Link
           to="/onboard"
@@ -308,7 +308,7 @@ export default function Landing() {
       {/* ─── FOOTER ─── */}
       <footer className="py-8 border-t border-gray-800 text-center">
         <p className="text-xs text-gray-600">
-          &copy; {new Date().getFullYear()} WC2026 Agent — Google Cloud Rapid Agent Hackathon (MongoDB Track)
+          &copy; {new Date().getFullYear()} Fanfare — Google Cloud Rapid Agent Hackathon (MongoDB Track)
         </p>
       </footer>
     </div>
