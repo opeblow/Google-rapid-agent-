@@ -15,9 +15,9 @@ export default function Navbar({ dark, toggleDark }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-7 h-7 rounded-lg bg-gray-950 dark:bg-white flex items-center justify-center text-[10px] font-bold text-white dark:text-gray-950">WC</div>
+            <div className="w-7 h-7 rounded-lg bg-gray-950 dark:bg-white flex items-center justify-center text-[10px] font-bold text-white dark:text-gray-950">FF</div>
             <span className="font-semibold text-sm text-gray-900 dark:text-white group-hover:text-gray-500 dark:group-hover:text-gray-400 transition-colors">
-              2026 Agent
+              Fanfare
             </span>
           </Link>
 

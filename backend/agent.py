@@ -58,7 +58,7 @@ async def init_agent() -> None:
             base_url=OPENROUTER_BASE_URL,
             default_headers={
                 "HTTP-Referer": "http://localhost:5173",
-                "X-Title": "WC2026 AI Trip Planner",
+                "X-Title": "Fanfare",
             },
         )
         logger.info("OpenRouter client initialized (model=%s)", OPENROUTER_MODEL)

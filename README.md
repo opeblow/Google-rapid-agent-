@@ -1,5 +1,5 @@
 ---
-title: WC2026 AI Trip Planner
+title: Fanfare — AI World Cup 2026 Trip Planner
 emoji: 🏆
 colorFrom: blue
 colorTo: purple
@@ -7,7 +7,7 @@ sdk: docker
 pinned: false
 ---
 
-# WC2026 Agent -- AI World Cup 2026 Trip Planner
+# Fanfare — AI World Cup 2026 Trip Planner
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 

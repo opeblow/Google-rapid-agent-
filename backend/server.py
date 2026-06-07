@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     logger.info("App shut down")
 
 
-app = FastAPI(title="World Cup 2026 Agent", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Fanfare — World Cup 2026 Trip Planner", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
