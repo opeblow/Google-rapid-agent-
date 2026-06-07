@@ -7,9 +7,11 @@ services:
       - key: MOUNT_FRONTEND
         value: "true"
       - key: LLM_PROVIDER
-        value: ai_studio
-      - key: GOOGLE_API_KEY
-        sync: false
+        value: vertex_ai
+      - key: VERTEX_AI_PROJECT
+        value: green-segment-498716-u8
+      - key: VERTEX_AI_LOCATION
+        value: us-central1
       - key: GEMINI_MODEL
         value: gemini-3-flash-preview
       - key: MONGODB_URI
