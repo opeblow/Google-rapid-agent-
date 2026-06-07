@@ -5,9 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
 
 WORKDIR /build
 
-COPY agent/requirements.txt agent/requirements.txt
 COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir -r agent/requirements.txt -r backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY frontend/ frontend/
 WORKDIR /build/frontend
@@ -15,6 +14,7 @@ RUN npm install && npm run build
 
 FROM python:3.12-slim
 
+# Node is required at runtime for the MongoDB MCP Server (npx mongodb-mcp-server)
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,12 +24,9 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /build/frontend/dist /app/frontend/dist
 
-COPY agent/ agent/
 COPY backend/ backend/
 COPY start_hf.py .
 
 EXPOSE 8000
-
-ENV AGENT_SERVICE_URL=http://localhost:8001
 
 CMD ["python", "start_hf.py"]

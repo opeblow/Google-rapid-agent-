@@ -1,26 +1,13 @@
 services:
   - type: web
-    name: wc2026-agent
+    name: wc2026-app
     runtime: docker
-    rootDir: agent
     dockerfilePath: ./Dockerfile
     envVars:
-      - key: GEMINI_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false
-      - key: MONGODB_URI
-        sync: false
-      - key: DATABASE_NAME
-        value: worldcup_2026
-
-  - type: web
-    name: wc2026-backend
-    runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: AGENT_SERVICE_URL
-        value: https://wc2026-agent.onrender.com
+      - key: OPENROUTER_MODEL
+        value: google/gemini-3-flash-preview
       - key: MONGODB_URI
         sync: false
       - key: DATABASE_NAME
@@ -34,4 +21,4 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        value: https://wc2026-backend.onrender.com
+        value: https://wc2026-app.onrender.com
